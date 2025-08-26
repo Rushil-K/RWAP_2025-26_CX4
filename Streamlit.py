@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import folium
 from streamlit_folium import st_folium
-from folium.plugins import HeatMap
+from folium.plugins import HeatMap, Fullscreen
 import pickle
 import gdown
 import os
@@ -82,6 +82,21 @@ st.markdown("""
         font-size: 2.5rem;
         margin: 1rem 0;
     }
+    .fullscreen-map-container {
+        position: relative;
+        background: linear-gradient(145deg, #1e1e1e, #2d2d2d);
+        border-radius: 15px;
+        padding: 1rem;
+        border: 1px solid #00d4ff;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    }
+    .map-controls {
+        background: linear-gradient(145deg, #2d2d2d, #1e1e1e);
+        padding: 1rem;
+        border-radius: 10px;
+        margin-bottom: 1rem;
+        border: 1px solid #00d4ff;
+    }
     .sidebar .sidebar-content {
         background-color: #1e1e1e;
     }
@@ -101,6 +116,19 @@ st.markdown("""
     }
     div[data-testid="metric-container"] > div {
         color: white !important;
+    }
+    .fullscreen-button {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 1000;
+        background: #00d4ff;
+        color: black;
+        border: none;
+        padding: 8px 12px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: bold;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -240,6 +268,55 @@ def load_models():
         scaler_last_price.fit(np.random.rand(100, 1))
     
     return models, scaler_all, scaler_last_price
+
+def create_enhanced_map(center_lat, center_lon, zoom_start=4, map_id="map"):
+    """Create an enhanced Folium map with fullscreen capability and larger size"""
+    m = folium.Map(
+        location=[center_lat, center_lon], 
+        zoom_start=zoom_start,
+        tiles=None,
+        prefer_canvas=True,
+        width='100%',
+        height='100%'
+    )
+    
+    # Add dark tile layer
+    folium.TileLayer(
+        tiles='https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        name='CartoDB Dark',
+        overlay=False,
+        control=True
+    ).add_to(m)
+    
+    # Add alternative tile layers
+    folium.TileLayer(
+        tiles='https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+        attr='CartoDB Light',
+        name='CartoDB Light',
+        overlay=False,
+        control=True
+    ).add_to(m)
+    
+    folium.TileLayer(
+        tiles='OpenStreetMap',
+        name='OpenStreetMap',
+        overlay=False,
+        control=True
+    ).add_to(m)
+    
+    # Add fullscreen button
+    Fullscreen(
+        position='topright',
+        title='Expand to Fullscreen',
+        title_cancel='Exit Fullscreen',
+        force_separate_button=True
+    ).add_to(m)
+    
+    # Add layer control
+    folium.LayerControl(position='topleft').add_to(m)
+    
+    return m
 
 def predict_asset_value(features, cluster_id, models, scaler_last_price, use_location=False):
     """Predict asset value using appropriate model"""
@@ -673,6 +750,17 @@ def show_location_prediction(df):
     st.subheader("📍 Location-Based Asset Value Prediction")
     st.write("Enter geographic coordinates to predict asset value based on nearby properties:")
     
+    # Map size controls
+    st.markdown("### 🎛️ Map Display Options")
+    col1, col2 = st.columns(2)
+    with col1:
+        map_height = st.selectbox("Map Height", [400, 500, 600, 700, 800], index=2)
+    with col2:
+        show_fullscreen_tip = st.checkbox("Show Fullscreen Instructions", value=True)
+    
+    if show_fullscreen_tip:
+        st.info("💡 **Tip**: Click the fullscreen button (⛶) in the top-right corner of the map for better viewing!")
+    
     with st.form("location_form"):
         col1, col2 = st.columns(2)
         
@@ -727,24 +815,28 @@ def show_location_prediction(df):
             </div>
             """, unsafe_allow_html=True)
             
-            # Show location on map
-            location_map = folium.Map(location=[latitude, longitude], zoom_start=10)
-            
-            # Add dark tile
-            folium.TileLayer(
-                tiles='https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-                attr='CartoDB Dark',
-                name='CartoDB Dark'
-            ).add_to(location_map)
+            # Show location on enhanced map
+            st.markdown("### 🗺️ Prediction Location Map")
+            location_map = create_enhanced_map(latitude, longitude, zoom_start=10, map_id="location_map")
             
             # Add prediction point
             folium.Marker(
                 [latitude, longitude],
-                popup=f"Predicted Value: ${predicted_value:,.0f}",
-                icon=folium.Icon(color='red', icon='star')
+                popup=folium.Popup(f"""
+                <div style='background-color: #1e1e1e; color: white; padding: 15px; border-radius: 8px; min-width: 200px;'>
+                    <h4 style='color: #00d4ff; margin-top: 0;'>📍 Prediction Location</h4>
+                    <p><strong>Predicted Value:</strong> <span style='color: #00ff88;'>${predicted_value:,.0f}</span></p>
+                    <p><strong>Coordinates:</strong> {latitude:.4f}, {longitude:.4f}</p>
+                    <p><strong>Nearby Assets:</strong> {nearby_count}</p>
+                    <p><strong>Closest Distance:</strong> {min_distance:.2f} km</p>
+                </div>
+                """, max_width=300),
+                icon=folium.Icon(color='red', icon='star', prefix='fa'),
+                tooltip="Click for prediction details"
             ).add_to(location_map)
             
-            st_folium(location_map, width=700, height=400)
+            # Display enhanced map
+            st_folium(location_map, width='100%', height=map_height, key="location_prediction_map")
 
 def show_combined_prediction(models, scaler_all, scaler_last_price, df):
     st.subheader("🔄 Combined Feature & Location Prediction")
@@ -966,6 +1058,19 @@ def show_analytics(df):
 def show_geographic_view(df):
     st.header("🗺️ Geographic Asset Distribution")
     
+    # Map controls
+    st.markdown("### 🎛️ Map Display Controls")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        map_height = st.selectbox("Map Height", [600, 700, 800, 900, 1000], index=1, key="geo_height")
+    with col2:
+        max_markers = st.selectbox("Max Markers (Performance)", [100, 250, 500, 1000, 2000], index=2)
+    with col3:
+        show_fullscreen_tip = st.checkbox("Show Fullscreen Instructions", value=True, key="geo_fullscreen")
+    
+    if show_fullscreen_tip:
+        st.info("💡 **Tip**: Click the fullscreen button (⛶) in the top-right corner of the map for immersive viewing!")
+    
     # Filter for assets with valid coordinates
     if 'Latitude' in df.columns and 'Longitude' in df.columns:
         geo_df = df.dropna(subset=['Latitude', 'Longitude']).copy()
@@ -986,88 +1091,104 @@ def show_geographic_view(df):
         st.warning("No geographic data available for visualization.")
         return
     
-    st.write(f"Showing {len(geo_df):,} assets with location data")
+    st.write(f"Showing up to {min(max_markers, len(geo_df)):,} of {len(geo_df):,} assets with location data")
     
     # Price filter
     price_filter = st.slider(
         "Filter by Predicted Value ($)",
         min_value=int(geo_df['pred_last_price_original'].min()),
         max_value=int(geo_df['pred_last_price_original'].max()),
-        value=(int(geo_df['pred_last_price_original'].min()), int(geo_df['pred_last_price_original'].max()))
+        value=(int(geo_df['pred_last_price_original'].min()), int(geo_df['pred_last_price_original'].max())),
+        key="geo_price_filter"
     )
     
     # Filter by price
     geo_df_filtered = geo_df[
         (geo_df['pred_last_price_original'] >= price_filter[0]) &
         (geo_df['pred_last_price_original'] <= price_filter[1])
-    ]
+    ].head(max_markers)  # Limit for performance
     
-    # Create map
+    # Create enhanced map
     center_lat = geo_df_filtered['Latitude'].mean()
     center_lon = geo_df_filtered['Longitude'].mean()
     
-    # Create Folium map with dark theme
-    m = folium.Map(
-        location=[center_lat, center_lon], 
-        zoom_start=4,
-        tiles=None
-    )
+    m = create_enhanced_map(center_lat, center_lon, zoom_start=4, map_id="geographic_view")
     
-    # Add dark tile layer
-    folium.TileLayer(
-        tiles='https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        name='CartoDB Dark',
-        overlay=False,
-        control=True
-    ).add_to(m)
-    
-    # Add markers
+    # Add markers with enhanced popups
     for idx, row in geo_df_filtered.iterrows():
         # Color based on predicted value quintiles
         value = row['pred_last_price_original']
         if value < geo_df_filtered['pred_last_price_original'].quantile(0.2):
             color = '#00ff00'  # Bright green
+            value_category = "Budget"
         elif value < geo_df_filtered['pred_last_price_original'].quantile(0.4):
             color = '#80ff00'  # Yellow-green
+            value_category = "Economy"
         elif value < geo_df_filtered['pred_last_price_original'].quantile(0.6):
             color = '#ffff00'  # Yellow
+            value_category = "Mid-Range"
         elif value < geo_df_filtered['pred_last_price_original'].quantile(0.8):
             color = '#ff8000'  # Orange
+            value_category = "Premium"
         else:
             color = '#ff0000'  # Red
+            value_category = "Luxury"
         
         folium.CircleMarker(
             location=[row['Latitude'], row['Longitude']],
-            radius=8,
-            popup=f"""
-            <div style='background-color: #1e1e1e; color: white; padding: 10px; border-radius: 5px;'>
-                <b style='color: #00d4ff;'>{row.get('Real Property Asset Name', 'Asset')}</b><br>
-                <strong>Location:</strong> {row['City']}, {row['State']}<br>
-                <strong>Predicted Value:</strong> <span style='color: #00ff88;'>${row['pred_last_price_original']:,.0f}</span><br>
-                <strong>Cluster:</strong> {row['cluster_kmeans']}<br>
-                <strong>Model:</strong> {row['model_used']}
+            radius=10,
+            popup=folium.Popup(f"""
+            <div style='background-color: #1e1e1e; color: white; padding: 15px; border-radius: 8px; min-width: 250px;'>
+                <h4 style='color: #00d4ff; margin-top: 0;'>🏢 {row.get('Real Property Asset Name', 'Asset')}</h4>
+                <hr style='border-color: #00d4ff; margin: 10px 0;'>
+                <p><strong>📍 Location:</strong> {row['City']}, {row['State']}</p>
+                <p><strong>💰 Predicted Value:</strong> <span style='color: #00ff88; font-size: 1.2em;'>${row['pred_last_price_original']:,.0f}</span></p>
+                <p><strong>🎯 Category:</strong> <span style='color: {color};'>{value_category}</span></p>
+                <p><strong>🔮 Cluster:</strong> {row['cluster_kmeans']}</p>
+                <p><strong>🤖 Model:</strong> {row['model_used']}</p>
+                <p><strong>📊 Coordinates:</strong> {row['Latitude']:.4f}, {row['Longitude']:.4f}</p>
             </div>
-            """,
+            """, max_width=300),
             color='black',
             weight=2,
             fill=True,
             fillColor=color,
-            fillOpacity=0.8
+            fillOpacity=0.8,
+            tooltip=f"${row['pred_last_price_original']:,.0f} - {row['City']}, {row['State']}"
         ).add_to(m)
     
-    # Display map
-    st_folium(m, width=700, height=600, key="geographic_map")
+    # Display enhanced map
+    st_folium(m, width='100%', height=map_height, key="main_geographic_map")
     
-    # Legend
+    # Enhanced Legend
     st.markdown("""
-    **🌈 Map Legend:**
-    - 🟢 **Bright Green**: Lowest value quintile (0-20%)
-    - 🟡 **Yellow-Green**: Second quintile (20-40%)
-    - 🟡 **Yellow**: Third quintile (40-60%)
-    - 🟠 **Orange**: Fourth quintile (60-80%)
-    - 🔴 **Red**: Highest value quintile (80-100%)
-    """)
+    <div class='fullscreen-map-container'>
+        <h4>🌈 Interactive Map Legend & Controls</h4>
+        <div style='display: flex; justify-content: space-around; flex-wrap: wrap; gap: 10px; margin: 15px 0;'>
+            <div style='text-align: center;'>
+                <div style='width: 20px; height: 20px; background: #00ff00; border-radius: 50%; margin: 0 auto 5px;'></div>
+                <strong>Budget</strong><br><small>Lowest 20%</small>
+            </div>
+            <div style='text-align: center;'>
+                <div style='width: 20px; height: 20px; background: #80ff00; border-radius: 50%; margin: 0 auto 5px;'></div>
+                <strong>Economy</strong><br><small>20-40%</small>
+            </div>
+            <div style='text-align: center;'>
+                <div style='width: 20px; height: 20px; background: #ffff00; border-radius: 50%; margin: 0 auto 5px;'></div>
+                <strong>Mid-Range</strong><br><small>40-60%</small>
+            </div>
+            <div style='text-align: center;'>
+                <div style='width: 20px; height: 20px; background: #ff8000; border-radius: 50%; margin: 0 auto 5px;'></div>
+                <strong>Premium</strong><br><small>60-80%</small>
+            </div>
+            <div style='text-align: center;'>
+                <div style='width: 20px; height: 20px; background: #ff0000; border-radius: 50%; margin: 0 auto 5px;'></div>
+                <strong>Luxury</strong><br><small>Top 20%</small>
+            </div>
+        </div>
+        <p><strong>🎮 Map Features:</strong> Fullscreen Mode • Multiple Tile Layers • Hover Tooltips • Click for Details</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 @st.cache_data
 def prepare_heatmap_data(df, heatmap_type):
@@ -1111,10 +1232,11 @@ def prepare_heatmap_data(df, heatmap_type):
 
 def show_price_heatmap(df):
     st.header("🔥 Asset Price Concentration Heatmap")
-    st.write("High-performance geographic heatmap showing asset price concentrations")
+    st.write("High-performance geographic heatmap showing asset price concentrations with full-screen capabilities")
     
-    # Heatmap controls
-    col1, col2, col3 = st.columns(3)
+    # Enhanced heatmap controls
+    st.markdown("### 🎛️ Heatmap Configuration")
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         heatmap_type = st.selectbox(
             "Heatmap Type",
@@ -1127,33 +1249,25 @@ def show_price_heatmap(df):
     with col3:
         max_zoom = st.slider("Max Zoom Level", 5, 15, 10)
     
+    with col4:
+        map_height = st.selectbox("Map Height", [600, 700, 800, 900, 1000], index=2)
+    
+    # Fullscreen tip
+    st.info("🚀 **Pro Tip**: Use the fullscreen button (⛶) for the ultimate heatmap experience! Perfect for presentations and detailed analysis.")
+    
     # Prepare heatmap data (cached for performance)
-    with st.spinner("Preparing heatmap data..."):
+    with st.spinner("🔄 Preparing high-performance heatmap data..."):
         heat_data, geo_df = prepare_heatmap_data(df, heatmap_type)
     
     if len(heat_data) == 0:
         st.warning("No geographic data available for heatmap visualization.")
         return
     
-    # Create base map with dark theme
+    # Create enhanced heatmap
     center_lat = np.mean([point[0] for point in heat_data])
     center_lon = np.mean([point[1] for point in heat_data])
     
-    m = folium.Map(
-        location=[center_lat, center_lon],
-        zoom_start=4,
-        tiles=None,
-        prefer_canvas=True  # Better performance
-    )
-    
-    # Add dark tile layer
-    folium.TileLayer(
-        tiles='https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        name='CartoDB Dark',
-        overlay=False,
-        control=True
-    ).add_to(m)
+    m = create_enhanced_map(center_lat, center_lon, zoom_start=4, map_id="price_heatmap")
     
     # Enhanced blue gradient for heatmap
     blue_gradient = {
@@ -1181,51 +1295,53 @@ def show_price_heatmap(df):
         blur=15
     ).add_to(m)
     
-    # Add layer control
-    folium.LayerControl().add_to(m)
+    # Display enhanced heatmap
+    st_folium(m, width='100%', height=map_height, key="enhanced_heatmap")
     
-    # Display map
-    st_folium(m, width=700, height=600, key="heatmap")
-    
-    # Statistics
+    # Enhanced Statistics Dashboard
+    st.markdown("### 📊 Heatmap Analytics Dashboard")
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Total Data Points", f"{len(heat_data):,}")
+        st.metric("🎯 Total Data Points", f"{len(heat_data):,}")
     with col2:
         if heatmap_type == "High Value Assets":
             threshold = df['pred_last_price_original'].quantile(0.75)
-            st.metric("High Value Assets", f"{len(geo_df):,}")
+            st.metric("💎 High Value Assets", f"{len(geo_df):,}")
         else:
-            st.metric("Average Price", f"${geo_df['pred_last_price_original'].mean():,.0f}")
+            st.metric("💰 Average Price", f"${geo_df['pred_last_price_original'].mean():,.0f}")
     with col3:
-        st.metric("Price Range", f"${geo_df['pred_last_price_original'].max() - geo_df['pred_last_price_original'].min():,.0f}")
+        st.metric("📈 Price Range", f"${geo_df['pred_last_price_original'].max() - geo_df['pred_last_price_original'].min():,.0f}")
     with col4:
         coverage_area = (geo_df['Latitude'].max() - geo_df['Latitude'].min()) * (geo_df['Longitude'].max() - geo_df['Longitude'].min())
-        st.metric("Coverage Area", f"{coverage_area:.1f}°²")
+        st.metric("🗺️ Coverage Area", f"{coverage_area:.1f}°²")
     
     # Enhanced explanation with performance info
     st.markdown(f"""
-    **🔥 Enhanced Blue Heatmap:**
-    - **Type**: {heatmap_type} - Shows concentration of {"assets" if heatmap_type == "Asset Density" else "asset values" if heatmap_type == "Average Price" else "high-value assets"}
-    - **Color Scale**: Deep blue (low concentration) → Bright cyan (high concentration)
-    - **Radius**: {radius} pixels per data point
-    - **Performance**: Optimized rendering with canvas support for faster loading
-    - **Interactive**: Zoom and pan to explore different regions
-    
-    **🎨 Color Interpretation:**
-    - **Dark Blue (#000428)**: Minimal activity/value
-    - **Medium Blue (#0088cc)**: Moderate concentration
-    - **Light Cyan (#b3f7ff)**: High concentration/value areas
-    """)
-    
-    # Performance tips
-    with st.expander("⚡ Performance Tips"):
-        st.markdown("""
-        - **Fast Loading**: Data is cached and pre-processed for optimal performance
-        - **Canvas Rendering**: Uses HTML5 canvas for smooth interactions
-        - **Optimized Gradients**: Blue color scheme optimized for readability
-        - **Smart Sampling**: Large datasets are intelligently sampled for speed
-        """)
+    <div class='fullscreen-map-container'>
+        <h4>🔥 Enhanced Blue Heatmap Analysis</h4>
+        <div style='display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 15px 0;'>
+            <div>
+                <h5>📋 Configuration</h5>
+                <ul>
+                    <li><strong>Type:</strong> {heatmap_type}</li>
+                    <li><strong>Radius:</strong> {radius} pixels</li>
+                    <li><strong>Max Zoom:</strong> Level {max_zoom}</li>
+                    <li><strong>Data Points:</strong> {len(heat_data):,}</li>
+                </ul>
+            </div>
+            <div>
+                <h5>🎨 Color Scale</h5>
+                <ul>
+                    <li><strong style='color: #000428;'>Dark Blue:</strong> Minimal activity/value</li>
+                    <li><strong style='color: #0088cc;'>Medium Blue:</strong> Moderate concentration</li>
+                    <li><strong style='color: #b3f7ff;'>Light Cyan:</strong> High concentration areas</li>
+                </ul>
+            </div>
+        </div>
+        <h5>⚡ Performance Features</h5>
+        <p>✅ Canvas rendering • ✅ Cached data processing • ✅ Optimized gradients • ✅ Full-screen mode • ✅ Multiple tile layers</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
