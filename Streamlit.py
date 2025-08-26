@@ -211,8 +211,8 @@ def load_models():
     except:
         from sklearn.ensemble import RandomForestRegressor
         models['global'] = RandomForestRegressor(n_estimators=10, random_state=42)
-        # Fit with dummy data
-        X_dummy = np.random.rand(100, 13)  # Updated to 13 features (including lat/lon)
+        # Fit with dummy data (11 features)
+        X_dummy = np.random.rand(100, 11)
         y_dummy = np.random.rand(100)
         models['global'].fit(X_dummy, y_dummy)
     
@@ -234,8 +234,8 @@ def load_models():
         from sklearn.preprocessing import MinMaxScaler
         scaler_all = MinMaxScaler()
         scaler_last_price = MinMaxScaler()
-        # Fit with dummy data
-        X_dummy = np.random.rand(100, 13)  # Updated to 13 features
+        # Fit with dummy data (11 features)
+        X_dummy = np.random.rand(100, 11)
         scaler_all.fit(X_dummy)
         scaler_last_price.fit(np.random.rand(100, 1))
     
@@ -259,8 +259,9 @@ def predict_asset_value(features, cluster_id, models, scaler_last_price, use_loc
                 if len(features) > expected_features:
                     features = features[:expected_features]
                 else:
-                    # Pad with zeros if needed
-                    features = np.pad(features, (0, expected_features - len(features)), 'constant')
+                    # Pad with mean of existing features if needed
+                    padding = np.full(expected_features - len(features), np.mean(features))
+                    features = np.concatenate([features, padding])
         
         # Make prediction (scaled)
         pred_scaled = model.predict(features.reshape(1, -1))[0]
@@ -272,7 +273,7 @@ def predict_asset_value(features, cluster_id, models, scaler_last_price, use_loc
     except Exception as e:
         # Return dummy prediction if model fails
         base_price = np.mean(features[:3]) if len(features) >= 3 else 400000
-        return max(200000, base_price * np.random.uniform(0.8, 1.2)), 'Global'
+        return max(200000, base_price * np.random.uniform(0.8, 1.2)), 'Global (Fallback)'
 
 def predict_by_location(latitude, longitude, df):
     """Predict asset value based on geographic location using nearby assets"""
@@ -619,12 +620,24 @@ def show_feature_prediction(models, scaler_all, scaler_last_price):
         
         if submitted:
             try:
-                # Prepare features (same order as in training)
+                # Prepare features (11 features as expected by the original model)
                 features = np.array([
                     mean_price, median_price, std_price, price_min, price_max, 
                     price_range, price_volatility, recent_6mo_avg, recent_12mo_avg,
                     mean_price, price_trend_slope  # Using mean_price as last_price for input
                 ])
+                
+                # Check the expected number of features from the scaler
+                expected_features = scaler_all.n_features_in_
+                
+                # Adjust features to match scaler expectations
+                if len(features) != expected_features:
+                    if len(features) > expected_features:
+                        features = features[:expected_features]
+                    else:
+                        # Pad with mean values if needed
+                        padding = np.full(expected_features - len(features), np.mean(features))
+                        features = np.concatenate([features, padding])
                 
                 # Scale features
                 features_scaled = scaler_all.transform(features.reshape(1, -1))
@@ -641,6 +654,7 @@ def show_feature_prediction(models, scaler_all, scaler_last_price):
                     <h1>${predicted_value:,.0f}</h1>
                     <p><strong>Model Used:</strong> {model_used}</p>
                     <p><strong>Cluster:</strong> {cluster_id if cluster_id is not None else 'Not specified'}</p>
+                    <p><strong>Features Used:</strong> {len(features)}</p>
                 </div>
                 """, unsafe_allow_html=True)
             except Exception as e:
@@ -766,51 +780,109 @@ def show_combined_prediction(models, scaler_all, scaler_last_price, df):
         predict_combined = st.form_submit_button("🎯 Combined Prediction", use_container_width=True)
         
         if predict_combined:
-            # Feature-based prediction
-            features = np.array([
-                mean_price, median_price, std_price, price_min, price_max,
-                price_max - price_min, price_volatility, recent_6mo_avg, 
-                recent_12mo_avg, mean_price, price_trend_slope, latitude, longitude
-            ])
-            
-            features_scaled = scaler_all.transform(features.reshape(1, -1))
-            feature_pred, feature_model = predict_asset_value(
-                features_scaled.flatten(), cluster_id, models, scaler_last_price, use_location=True
-            )
-            
-            # Location-based prediction
-            location_pred, nearby_count, min_distance = predict_by_location(latitude, longitude, df)
-            
-            # Combined prediction (weighted average)
-            combined_pred = (feature_pred * 0.7) + (location_pred * 0.3)
-            
-            # Display all predictions
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
+            try:
+                # Create features array with the same 11 features as the original model
+                price_range = price_max - price_min
+                features = np.array([
+                    mean_price, median_price, std_price, price_min, price_max,
+                    price_range, price_volatility, recent_6mo_avg, 
+                    recent_12mo_avg, mean_price, price_trend_slope  # 11 features total
+                ])
+                
+                # Check the expected number of features from the scaler
+                expected_features = scaler_all.n_features_in_
+                
+                # Adjust features to match scaler expectations
+                if len(features) != expected_features:
+                    if len(features) > expected_features:
+                        features = features[:expected_features]
+                    else:
+                        # Pad with mean values if needed
+                        padding = np.full(expected_features - len(features), np.mean(features))
+                        features = np.concatenate([features, padding])
+                
+                # Scale features
+                features_scaled = scaler_all.transform(features.reshape(1, -1))
+                
+                # Feature-based prediction
+                feature_pred, feature_model = predict_asset_value(
+                    features_scaled.flatten(), cluster_id, models, scaler_last_price, use_location=False
+                )
+                
+                # Location-based prediction
+                location_pred, nearby_count, min_distance = predict_by_location(latitude, longitude, df)
+                
+                # Combined prediction (weighted average)
+                combined_pred = (feature_pred * 0.7) + (location_pred * 0.3)
+                
+                # Display all predictions
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.markdown(f"""
+                    <div class='prediction-box' style='background: linear-gradient(145deg, #1a2d1a, #2d4a2d);'>
+                        <h3>📊 Feature-Based</h3>
+                        <h2>${feature_pred:,.0f}</h2>
+                        <p>Model: {feature_model}</p>
+                        <p>Features: {len(features)}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col2:
+                    st.markdown(f"""
+                    <div class='location-prediction-box'>
+                        <h3>📍 Location-Based</h3>
+                        <h2>${location_pred:,.0f}</h2>
+                        <p>{nearby_count} nearby assets</p>
+                        <p>Distance: {min_distance:.1f} km</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col3:
+                    st.markdown(f"""
+                    <div class='prediction-box' style='background: linear-gradient(145deg, #2d1a4a, #4a2d6a);'>
+                        <h3>🔄 Combined</h3>
+                        <h2>${combined_pred:,.0f}</h2>
+                        <p>70% Feature + 30% Location</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                # Show methodology
+                with st.expander("📖 Methodology Details"):
+                    st.markdown(f"""
+                    **Feature-Based Prediction:**
+                    - Uses {len(features)} engineered features
+                    - Scaled using trained MinMaxScaler
+                    - Model: {feature_model}
+                    - Coordinates: ({latitude:.4f}, {longitude:.4f})
+                    
+                    **Location-Based Prediction:**
+                    - Analyzes {nearby_count} nearby assets
+                    - Weighted by inverse distance
+                    - Closest asset: {min_distance:.2f} km away
+                    - Includes location bonuses for coastal/urban areas
+                    
+                    **Combined Prediction:**
+                    - 70% weight on feature-based model
+                    - 30% weight on location analysis
+                    - Balances model accuracy with local market conditions
+                    """)
+                    
+            except Exception as e:
+                st.error(f"Combined prediction failed: {str(e)}")
+                st.info("Using fallback prediction method...")
+                
+                # Fallback prediction
+                fallback_feature = np.mean([mean_price, median_price, recent_6mo_avg, recent_12mo_avg])
+                fallback_location, nearby_count, min_distance = predict_by_location(latitude, longitude, df)
+                fallback_combined = (fallback_feature * 0.7) + (fallback_location * 0.3)
+                
                 st.markdown(f"""
-                <div class='prediction-box' style='background: linear-gradient(145deg, #1a2d1a, #2d4a2d);'>
-                    <h3>📊 Feature-Based</h3>
-                    <h2>${feature_pred:,.0f}</h2>
-                    <p>Model: {feature_model}</p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col2:
-                st.markdown(f"""
-                <div class='location-prediction-box'>
-                    <h3>📍 Location-Based</h3>
-                    <h2>${location_pred:,.0f}</h2>
-                    <p>{nearby_count} nearby assets</p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col3:
-                st.markdown(f"""
-                <div class='prediction-box' style='background: linear-gradient(145deg, #2d1a4a, #4a2d6a);'>
-                    <h3>🔄 Combined</h3>
-                    <h2>${combined_pred:,.0f}</h2>
-                    <p>70% Feature + 30% Location</p>
+                <div class='prediction-box' style='background: linear-gradient(145deg, #4a2d1a, #6a4a2d);'>
+                    <h2>🔄 Fallback Combined Prediction</h2>
+                    <h1>${fallback_combined:,.0f}</h1>
+                    <p>Statistical + Location Analysis</p>
+                    <p>Nearby Assets: {nearby_count}</p>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -1131,8 +1203,15 @@ def show_price_heatmap(df):
         coverage_area = (geo_df['Latitude'].max() - geo_df['Latitude'].min()) * (geo_df['Longitude'].max() - geo_df['Longitude'].min())
         st.metric("Coverage Area", f"{coverage_area:.1f}°²")
     
-    # Nav Tools
-    st.markdown(f"""  
+    # Enhanced explanation with performance info
+    st.markdown(f"""
+    **🔥 Enhanced Blue Heatmap:**
+    - **Type**: {heatmap_type} - Shows concentration of {"assets" if heatmap_type == "Asset Density" else "asset values" if heatmap_type == "Average Price" else "high-value assets"}
+    - **Color Scale**: Deep blue (low concentration) → Bright cyan (high concentration)
+    - **Radius**: {radius} pixels per data point
+    - **Performance**: Optimized rendering with canvas support for faster loading
+    - **Interactive**: Zoom and pan to explore different regions
+    
     **🎨 Color Interpretation:**
     - **Dark Blue (#000428)**: Minimal activity/value
     - **Medium Blue (#0088cc)**: Moderate concentration
