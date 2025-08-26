@@ -256,8 +256,8 @@ def load_models():
     
     return models, scaler_all, scaler_last_price
 
-def create_enhanced_map(center_lat, center_lon, zoom_start=4, map_id="map"):
-    """Create an enhanced Folium map with fullscreen capability and larger size"""
+def create_dark_map(center_lat, center_lon, zoom_start=4, map_id="map"):
+    """Create a dark theme Folium map with fullscreen capability"""
     m = folium.Map(
         location=[center_lat, center_lon], 
         zoom_start=zoom_start,
@@ -267,27 +267,11 @@ def create_enhanced_map(center_lat, center_lon, zoom_start=4, map_id="map"):
         height='100%'
     )
     
-    # Add dark tile layer
+    # Add ONLY dark tile layer as default
     folium.TileLayer(
         tiles='https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
         attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
         name='CartoDB Dark',
-        overlay=False,
-        control=True
-    ).add_to(m)
-    
-    # Add alternative tile layers
-    folium.TileLayer(
-        tiles='https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-        attr='CartoDB Light',
-        name='CartoDB Light',
-        overlay=False,
-        control=True
-    ).add_to(m)
-    
-    folium.TileLayer(
-        tiles='OpenStreetMap',
-        name='OpenStreetMap',
         overlay=False,
         control=True
     ).add_to(m)
@@ -299,9 +283,6 @@ def create_enhanced_map(center_lat, center_lon, zoom_start=4, map_id="map"):
         title_cancel='Exit Fullscreen',
         force_separate_button=True
     ).add_to(m)
-    
-    # Add layer control
-    folium.LayerControl(position='topleft').add_to(m)
     
     return m
 
@@ -802,9 +783,9 @@ def show_location_prediction(df):
             </div>
             """, unsafe_allow_html=True)
             
-            # Show location on enhanced map
+            # Show location on dark map
             st.markdown("### 🗺️ Prediction Location Map")
-            location_map = create_enhanced_map(latitude, longitude, zoom_start=10, map_id="location_map")
+            location_map = create_dark_map(latitude, longitude, zoom_start=10, map_id="location_map")
             
             # Add prediction point
             folium.Marker(
@@ -822,7 +803,7 @@ def show_location_prediction(df):
                 tooltip="Click for prediction details"
             ).add_to(location_map)
             
-            # Display enhanced map
+            # Display dark map
             st_folium(location_map, width='100%', height=map_height, key="location_prediction_map")
 
 def show_combined_prediction(models, scaler_all, scaler_last_price, df):
@@ -1095,11 +1076,11 @@ def show_geographic_view(df):
         (geo_df['pred_last_price_original'] <= price_filter[1])
     ].head(max_markers)  # Limit for performance
     
-    # Create enhanced map
+    # Create dark map
     center_lat = geo_df_filtered['Latitude'].mean()
     center_lon = geo_df_filtered['Longitude'].mean()
     
-    m = create_enhanced_map(center_lat, center_lon, zoom_start=4, map_id="geographic_view")
+    m = create_dark_map(center_lat, center_lon, zoom_start=4, map_id="geographic_view")
     
     # Add markers with enhanced popups
     for idx, row in geo_df_filtered.iterrows():
@@ -1144,7 +1125,7 @@ def show_geographic_view(df):
             tooltip=f"${row['pred_last_price_original']:,.0f} - {row['City']}, {row['State']}"
         ).add_to(m)
     
-    # Display enhanced map
+    # Display dark map
     st_folium(m, width='100%', height=map_height, key="main_geographic_map")
     
     # Enhanced Legend
@@ -1173,7 +1154,7 @@ def show_geographic_view(df):
                 <strong>Luxury</strong><br><small>Top 20%</small>
             </div>
         </div>
-        <p><strong>🎮 Map Features:</strong> Fullscreen Mode • Multiple Tile Layers • Hover Tooltips • Click for Details</p>
+        <p><strong>🎮 Map Features:</strong> Fullscreen Mode • Dark Theme • Hover Tooltips • Click for Details</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1252,11 +1233,11 @@ def show_price_heatmap(df):
     
     st.write(f"🎯 **Heatmap Data**: Processing {len(heat_data):,} data points for {heatmap_type}")
     
-    # Create enhanced heatmap
+    # Create enhanced heatmap with dark theme
     center_lat = np.mean([point[0] for point in heat_data])
     center_lon = np.mean([point[1] for point in heat_data])
     
-    # Create base map with fullscreen capability
+    # Create base map with ONLY dark theme
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=4,
@@ -1266,28 +1247,11 @@ def show_price_heatmap(df):
         height='100%'
     )
     
-    # Add dark tile layer as default
+    # Add ONLY dark tile layer
     folium.TileLayer(
         tiles='https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
         attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
         name='CartoDB Dark',
-        overlay=False,
-        control=True
-    ).add_to(m)
-    
-    # Add light tile layer
-    folium.TileLayer(
-        tiles='https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-        attr='CartoDB Light',
-        name='CartoDB Light',
-        overlay=False,
-        control=True
-    ).add_to(m)
-    
-    # Add OpenStreetMap
-    folium.TileLayer(
-        tiles='OpenStreetMap',
-        name='OpenStreetMap',
         overlay=False,
         control=True
     ).add_to(m)
@@ -1347,9 +1311,6 @@ def show_price_heatmap(df):
         force_separate_button=True
     ).add_to(m)
     
-    # Add layer control
-    folium.LayerControl(position='topleft').add_to(m)
-    
     # Display the heatmap
     st.markdown("### 🔥 Interactive Asset Price Heatmap")
     st_folium(m, width='100%', height=map_height, key="price_concentration_heatmap")
@@ -1370,53 +1331,6 @@ def show_price_heatmap(df):
     with col4:
         coverage_area = (geo_df['Latitude'].max() - geo_df['Latitude'].min()) * (geo_df['Longitude'].max() - geo_df['Longitude'].min())
         st.metric("🗺️ Coverage Area", f"{coverage_area:.1f}°²")
-    
-    # Enhanced explanation with performance info
-    st.markdown(f"""
-    <div class='fullscreen-map-container'>
-        <h4>🔥 Enhanced Blue Heatmap Analysis</h4>
-        <div style='display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 15px 0;'>
-            <div>
-                <h5>📋 Configuration</h5>
-                <ul>
-                    <li><strong>Type:</strong> {heatmap_type}</li>
-                    <li><strong>Radius:</strong> {radius} pixels</li>
-                    <li><strong>Max Zoom:</strong> Level {max_zoom}</li>
-                    <li><strong>Data Points:</strong> {len(heat_data):,}</li>
-                </ul>
-            </div>
-            <div>
-                <h5>🎨 Color Scale</h5>
-                <ul>
-                    <li><strong style='color: #000428;'>Dark Blue:</strong> Minimal activity/value</li>
-                    <li><strong style='color: #0088cc;'>Medium Blue:</strong> Moderate concentration</li>
-                    <li><strong style='color: #b3f7ff;'>Light Cyan:</strong> High concentration areas</li>
-                </ul>
-            </div>
-        </div>
-        <h5>⚡ Performance Features</h5>
-        <p>✅ Canvas rendering • ✅ Cached data processing • ✅ Optimized gradients • ✅ Full-screen mode • ✅ Multiple tile layers</p>
-        
-        <h5>🎮 Interactive Controls</h5>
-        <p><strong>Fullscreen:</strong> Click ⛶ button | <strong>Layers:</strong> Top-left control | <strong>Zoom:</strong> Mouse wheel/buttons</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Troubleshooting section
-    with st.expander("🔧 Troubleshooting & Tips"):
-        st.markdown("""
-        **If the heatmap doesn't appear:**
-        - Try reducing the radius or data points
-        - Switch to a different tile layer using the layer control
-        - Use fullscreen mode for better performance
-        - Check your internet connection
-        
-        **Performance Tips:**
-        - Lower radius values (5-15) for better performance
-        - Use "Asset Density" type for fastest rendering
-        - Fullscreen mode provides the best experience
-        - Layer switching can help with visibility
-        """)
 
 if __name__ == "__main__":
     main()
