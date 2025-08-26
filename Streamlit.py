@@ -117,19 +117,6 @@ st.markdown("""
     div[data-testid="metric-container"] > div {
         color: white !important;
     }
-    .fullscreen-button {
-        position: absolute;
-        top: 10px;
-        right: 10px;
-        z-index: 1000;
-        background: #00d4ff;
-        color: black;
-        border: none;
-        padding: 8px 12px;
-        border-radius: 5px;
-        cursor: pointer;
-        font-weight: bold;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1263,11 +1250,47 @@ def show_price_heatmap(df):
         st.warning("No geographic data available for heatmap visualization.")
         return
     
+    st.write(f"🎯 **Heatmap Data**: Processing {len(heat_data):,} data points for {heatmap_type}")
+    
     # Create enhanced heatmap
     center_lat = np.mean([point[0] for point in heat_data])
     center_lon = np.mean([point[1] for point in heat_data])
     
-    m = create_enhanced_map(center_lat, center_lon, zoom_start=4, map_id="price_heatmap")
+    # Create base map with fullscreen capability
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=4,
+        tiles=None,
+        prefer_canvas=True,
+        width='100%',
+        height='100%'
+    )
+    
+    # Add dark tile layer as default
+    folium.TileLayer(
+        tiles='https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        name='CartoDB Dark',
+        overlay=False,
+        control=True
+    ).add_to(m)
+    
+    # Add light tile layer
+    folium.TileLayer(
+        tiles='https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+        attr='CartoDB Light',
+        name='CartoDB Light',
+        overlay=False,
+        control=True
+    ).add_to(m)
+    
+    # Add OpenStreetMap
+    folium.TileLayer(
+        tiles='OpenStreetMap',
+        name='OpenStreetMap',
+        overlay=False,
+        control=True
+    ).add_to(m)
     
     # Enhanced blue gradient for heatmap
     blue_gradient = {
@@ -1284,19 +1307,52 @@ def show_price_heatmap(df):
         1.0: '#b3f7ff'   # Very light cyan
     }
     
-    # Add optimized heatmap layer
-    HeatMap(
-        heat_data,
-        radius=radius,
-        max_zoom=max_zoom,
-        gradient=blue_gradient,
-        min_opacity=0.2,
-        max_val=1.0,
-        blur=15
+    # Add the heatmap layer
+    try:
+        heatmap_layer = HeatMap(
+            heat_data,
+            radius=radius,
+            max_zoom=max_zoom,
+            gradient=blue_gradient,
+            min_opacity=0.2,
+            max_val=1.0,
+            blur=15
+        )
+        heatmap_layer.add_to(m)
+        
+        st.success(f"✅ **Heatmap Created**: {len(heat_data):,} data points successfully rendered")
+        
+    except Exception as e:
+        st.error(f"❌ **Heatmap Error**: {str(e)}")
+        st.info("🔄 **Fallback**: Creating simplified heatmap...")
+        
+        # Fallback heatmap with reduced data
+        simplified_data = heat_data[:1000] if len(heat_data) > 1000 else heat_data
+        heatmap_layer = HeatMap(
+            simplified_data,
+            radius=10,
+            max_zoom=8,
+            gradient=blue_gradient,
+            min_opacity=0.3
+        )
+        heatmap_layer.add_to(m)
+        
+        st.warning(f"⚠️ **Note**: Showing simplified heatmap with {len(simplified_data):,} points for performance")
+    
+    # Add fullscreen capability
+    Fullscreen(
+        position='topright',
+        title='Expand to Fullscreen',
+        title_cancel='Exit Fullscreen',
+        force_separate_button=True
     ).add_to(m)
     
-    # Display enhanced heatmap
-    st_folium(m, width='100%', height=map_height, key="enhanced_heatmap")
+    # Add layer control
+    folium.LayerControl(position='topleft').add_to(m)
+    
+    # Display the heatmap
+    st.markdown("### 🔥 Interactive Asset Price Heatmap")
+    st_folium(m, width='100%', height=map_height, key="price_concentration_heatmap")
     
     # Enhanced Statistics Dashboard
     st.markdown("### 📊 Heatmap Analytics Dashboard")
@@ -1340,8 +1396,27 @@ def show_price_heatmap(df):
         </div>
         <h5>⚡ Performance Features</h5>
         <p>✅ Canvas rendering • ✅ Cached data processing • ✅ Optimized gradients • ✅ Full-screen mode • ✅ Multiple tile layers</p>
+        
+        <h5>🎮 Interactive Controls</h5>
+        <p><strong>Fullscreen:</strong> Click ⛶ button | <strong>Layers:</strong> Top-left control | <strong>Zoom:</strong> Mouse wheel/buttons</p>
     </div>
     """, unsafe_allow_html=True)
+    
+    # Troubleshooting section
+    with st.expander("🔧 Troubleshooting & Tips"):
+        st.markdown("""
+        **If the heatmap doesn't appear:**
+        - Try reducing the radius or data points
+        - Switch to a different tile layer using the layer control
+        - Use fullscreen mode for better performance
+        - Check your internet connection
+        
+        **Performance Tips:**
+        - Lower radius values (5-15) for better performance
+        - Use "Asset Density" type for fastest rendering
+        - Fullscreen mode provides the best experience
+        - Layer switching can help with visibility
+        """)
 
 if __name__ == "__main__":
     main()
